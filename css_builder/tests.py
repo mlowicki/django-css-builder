@@ -9,7 +9,7 @@ import shutil
 
 from django.test import TestCase
 
-from css_builder.utils import img2b64, here
+from css_builder.utils import background2b64, here
 from css_builder.tests_utils import SettingsTestCase
 
 class UtilsTest(SettingsTestCase):
@@ -28,7 +28,7 @@ class UtilsTest(SettingsTestCase):
         super(UtilsTest, self).tearDown()
         shutil.rmtree(self.rootTestsDir)
 
-    def test_img2b64(self):
+    def test_background2b64(self):
         self.settings_manager.set(MEDIA_ROOT=here(["tests_data"]))
         f = open(os.path.join(self.rootTestsDir, "a.png"), "w")
         f.write("abcdef")
@@ -37,9 +37,32 @@ class UtilsTest(SettingsTestCase):
         f = open(css_file, "w")
         f.write("background-image: url(a.png); /* 2b64 */")
         f.close()
-        img2b64(css_file)
+        background2b64(css_file)
         f = open(css_file, "r")
         content = f.read()
         f.close()
         self.failUnlessEqual(content, "background-image: url(%s);" %\
                         ("data:image/png;base64," + "abcdef".encode("base64")))
+
+        f = open(css_file, "w")
+        f.write("background: #808080 url(a.png) no-repeat 0px 0px; /* 2b64 */")
+        f.close()
+        background2b64(css_file)
+        f = open(css_file, "r")
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content,
+                        "background: #808080 url(%s) no-repeat 0px 0px;" %\
+                        ("data:image/png;base64," + "abcdef".encode("base64")))
+
+        f = open(css_file, "w")
+        f.write("background: red url(a.png) no-repeat top left; /* 2b64 */")
+        f.close()
+        background2b64(css_file)
+        f = open(css_file, "r")
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content,
+                        "background: red url(%s) no-repeat top left;" %\
+                        ("data:image/png;base64," + "abcdef".encode("base64")))
+
