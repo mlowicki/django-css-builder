@@ -6,6 +6,8 @@ from django.core.management import call_command
 from django.db.models import loading
 from django.test import TestCase
 
+from css_builder.utils import LOG_FILENAME
+
 NO_SETTING = ('!', None)
 
 class TestSettingsManager(object):
@@ -71,3 +73,20 @@ class SettingsTestCase(TestCase):
     def tearDown(self):
         self.settings_manager.revert()
 
+def check_last_log(msg):
+    """
+    Check if last message in logging file is msg
+    
+    Parameters:
+        msg <str>
+        
+    Return:
+        bool
+    """
+    f = open(LOG_FILENAME, "r")
+    last_line = f.readlines()[-1]
+    f.close()
+    if last_line.find(msg) == -1:
+        return False
+    else:
+        return True
