@@ -2,7 +2,7 @@
 from django.db import models
 
 
-class CSSSprite(models.Model):
+class Sprite(models.Model):
     """
     """
     name = models.CharField(max_length=100, primary_key=True)
@@ -12,10 +12,10 @@ class CSSSprite(models.Model):
         return "%s" % self.name
 
 
-class CSSSpriteImage(models.Model):
+class SpriteImage(models.Model):
     """
     """
-    sprite = models.ForeignKey(CSSSprite, related_name="images")
+    sprite = models.ForeignKey(Sprite, related_name="images")
     path = models.CharField(max_length=200, primary_key=True)
     x = models.IntegerField()
     y = models.IntegerField()

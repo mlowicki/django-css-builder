@@ -11,7 +11,7 @@ from django.utils import importlib
 from css_builder.core_utils import (get_package_files,
                                     concatenate_package_files,
                                     find_package_files,)
-from css_builder.models import CSSSpriteImage, CSSSprite
+from css_builder.models import SpriteImage, Sprite
 
 here = lambda x: os.path.join(os.path.abspath(os.path.dirname(__file__)), *x)
 
@@ -176,8 +176,9 @@ def get_css_sprite_data(path):
     if sprite_name == None:
         return None
     if not css_sprite_is_up_to_date(sprite_name):
-        build_css_sprite(sprite_name)
-    image = CSSSpriteImage.objects.get(path = abspath)
+        if not build_css_sprite(sprite_name):
+            return None
+    image = SpriteImage.objects.get(path = abspath)
     if not os.path.exists(abspath):
         log("get_css_sprite_data", "%s (%s) does not exists." % (path, abspath))
         return None
@@ -195,7 +196,6 @@ def add_css_sprites(path):
         all <bool>    - indicates if only add sprites to the rules with comment
                         /* 2sprite */ at the end or all
     """
-    
     f = open(path, "r")
     content = f.read()
     f.close()
@@ -285,8 +285,7 @@ def compress_package(package_name):
         log("yui compressor", error(output))
 
 
-
-class Image(object):
+class ImageFile(object):
     """
     Class represents image
     """
@@ -304,7 +303,7 @@ class Image(object):
         self.height = 200
 
 
-class SpriteImage(Image):
+class SpriteImageFile(ImageFile):
     """
     Class represents sprite image
     """
@@ -318,7 +317,7 @@ class SpriteImage(Image):
             y <int> - TODO
             
         """
-        super(SpriteImage, self).__init__(path)
+        super(SpriteImageFile, self).__init__(path)
         self.x = x
         self.y = y
 
@@ -335,7 +334,7 @@ def build_css_sprite_vertically(images):
     results = []
     current_y = 0
     for image in images:
-        sprite_image = SpriteImage(image.path, 0, current_y)
+        sprite_image = SpriteImageFile(image.path, 0, current_y)
         results.append(sprite_image)
         if current_y == 0:
             current_y += 1
@@ -355,7 +354,7 @@ def build_css_sprite_horizontaly(images):
     results = []
     current_x = 0
     for image in images:
-        sprite_image = SpriteImage(image.path, current_x, 0)
+        sprite_image = SpriteImageFile(image.path, current_x, 0)
         results.append(sprite_image)
         if current_x == 0:
             current_x += 1
@@ -387,9 +386,9 @@ def create_css_sprite_file(sprite_name, images):
         return
     # TODO: create sprite file
     try:
-        sprite = CSSSprite.objects.get(name=sprite_name)
-    except CSSSprite.DoesNotExist:
-        sprite = CSSSprite.objects.create(name=sprite_name)
+        sprite = Sprite.objects.get(name=sprite_name)
+    except Sprite.DoesNotExist:
+        sprite = Sprite.objects.create(name=sprite_name)
 
     sprite_cfg = settings.CSS_BUILDER_SPRITES[sprite_name]
     sprite.orientation = sprite_cfg.get("orientation", "default")
@@ -397,10 +396,10 @@ def create_css_sprite_file(sprite_name, images):
  
     for image in images:
         try:
-            sprite_image = CSSSpriteImage.objects.get(path=image.path,
+            sprite_image = SpriteImage.objects.get(path=image.path,
                                                       sprite=sprite)
-        except CSSSpriteImage.DoesNotExist:
-            sprite_image = CSSSpriteImage(path=image.path, sprite=sprite)
+        except SpriteImage.DoesNotExist:
+            sprite_image = SpriteImage(path=image.path, sprite=sprite)
         sprite_image.x = image.x
         sprite_image.y = image.y
         sprite_image.save()
@@ -412,20 +411,27 @@ def build_css_sprite(sprite_name):
 
     Parameters:
         sprite_name <str>
+    Return:
+        bool
     """
     cfg = settings.CSS_BUILDER_SPRITES[sprite_name]
     paths = find_package_files(cfg["files"], settings.CSS_BUILDER_SOURCE)
     images = []
     for path in paths:
-        images.append(Image(path))
+        images.append(ImageFile(path))
     if cfg.has_key("orientation"):
         if cfg["orientation"] == "vertically":
             sprite_images = build_css_sprite_vertically(images)
         elif cfg["orientation"] == "horizontaly":
             sprite_images = build_css_sprite_horizontaly(images)
+        else:
+            log("build_css_sprite", "Unrecognized orientation: %s" %\
+                cfg["orientation"])
+            return False
     else:
         sprite_images = build_css_sprite_default(images)
     create_css_sprite_file(sprite_name, sprite_images)
+    return True
 
 
 def css_sprite_is_up_to_date(sprite_name):
@@ -445,10 +451,9 @@ def css_sprite_is_up_to_date(sprite_name):
     if not os.path.exists(sprite_file): # sprite files doesn't exist
         return False
 
-    sprite_m_time = os.path.getmtime(sprite_file)
     try:
-        sprite = CSSSprite.objects.get(name=sprite_name)
-    except CSSSprite.DoesNotExist:
+        sprite = Sprite.objects.get(name=sprite_name)
+    except Sprite.DoesNotExist:
         return False
 
     # check if orientation property wasn't changed
@@ -461,11 +466,12 @@ def css_sprite_is_up_to_date(sprite_name):
         if not os.path.exists(f.path): # file has been removed
             return False
         # some file from css sprite files has been modified
+        sprite_m_time = os.path.getmtime(sprite_file)
         if os.path.getmtime(f.path) > sprite_m_time:
             return False
     for f in current_files: # check if new files have been added
         try:
-            CSSSpriteImage.objects.get(path = f, sprite = sprite)
-        except CSSSpriteImage.DoesNotExist:
+            SpriteImage.objects.get(path = f, sprite = sprite)
+        except SpriteImage.DoesNotExist:
             return False
     return True

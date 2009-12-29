@@ -1,8 +1,4 @@
 """
-This file demonstrates two different styles of tests (one doctest and one
-unittest). These will both pass when you run "manage.py test".
-
-Replace these with more appropriate tests for your application.
 """
 
 #
@@ -21,11 +17,11 @@ from css_builder.utils import (add_embedding_images, add_css_sprites, here,
                                BACKGROUND_REPEAT, BACKGROUND_COLOR,
                                BACKGROUND_POSITION, BACKGROUND,
                                BACKGROUND_IMAGE, build_package,
-                               build_css_sprite, Image, SpriteImage,
+                               build_css_sprite, ImageFile, SpriteImageFile,
                                css_sprite_is_up_to_date,
                                found_css_sprite, create_css_sprite_file)
 from css_builder.tests_utils import SettingsTestCase, check_last_log
-from css_builder.models import CSSSpriteImage, CSSSprite
+from css_builder.models import SpriteImage, Sprite
 
 class UtilsTest(SettingsTestCase):
     """
@@ -42,9 +38,9 @@ class UtilsTest(SettingsTestCase):
     def tearDown(self):
         super(UtilsTest, self).tearDown()
         shutil.rmtree(self.rootTestsDir)
-        for sprite in CSSSprite.objects.all():
+        for sprite in Sprite.objects.all():
             sprite.delete()
-        for image in CSSSpriteImage.objects.all():
+        for image in SpriteImage.objects.all():
             image.delete()
 
     def test_regexps(self):
@@ -100,6 +96,19 @@ class UtilsTest(SettingsTestCase):
         self.failUnlessEqual(content,
             "background: #808080 url(path/to/sprite) no-repeat 0px 0px;")
 
+        self.settings_manager.set(
+                            CSS_BUILDER_SPRITES={"s1": {"files": [r".*\.png"],
+                                            "orientation": "wrong name"}})
+        f = open(css_file, "w")
+        f.write(
+            "background: #808080 url(a.png) no-repeat top left; /* 2sprite */")
+        f.close()
+
+        add_css_sprites(css_file)
+        f = open(css_file, "r")
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content, "background: none;")
 
     def test_add_embedding_images(self):
         self.settings_manager.set(CSS_BUILDER_SOURCE=os.path.join(
@@ -172,7 +181,7 @@ class UtilsTest(SettingsTestCase):
         f.close()
         build_css_sprite("p1")
         coords = [[0,0], [0, 201], [0, 401]]
-        for image in CSSSpriteImage.objects.all():
+        for image in SpriteImage.objects.all():
             image_xy = [image.x, image.y]
             self.failUnless(image_xy in coords)
             coords.remove(image_xy)
@@ -182,10 +191,16 @@ class UtilsTest(SettingsTestCase):
                                                 "orientation": "horizontaly"}})
         build_css_sprite("p1")
         coords = [[0,0], [101, 0], [201, 0]]
-        for image in CSSSpriteImage.objects.all():
+        for image in SpriteImage.objects.all():
             image_xy = [image.x, image.y]
             self.failUnless(image_xy in coords)
             coords.remove(image_xy)
+
+        self.settings_manager.set(
+                            CSS_BUILDER_SPRITES={"p1": {"files": [r".*\.png"],
+                                                "orientation": "wrong name"}})
+        build_css_sprite("p1")
+        self.failUnless(check_last_log("Unrecognized orientation: wrong name"))
 
     def test_found_css_sprite(self):
         self.settings_manager.set(
@@ -240,14 +255,14 @@ class UtilsTest(SettingsTestCase):
 
         f = open(os.path.join(self.rootTestsDir, "dest", "p1"), "w")
         f.close()
-        # record in CSSSprite does not exist
+        # record in Sprite does not exist
         self.failIf(css_sprite_is_up_to_date("p1"))
 
-        self.sprite_1 = CSSSprite.objects.create(name="p1")
+        self.sprite_1 = Sprite.objects.create(name="p1")
         self.failUnless(css_sprite_is_up_to_date("p1"))
 
         # image exists in database but the file in the file system not
-        CSSSpriteImage.objects.create(sprite=self.sprite_1,
+        SpriteImage.objects.create(sprite=self.sprite_1,
             path=os.path.join(self.rootTestsDir, "dest", "a.jpg"), x=0, y=0)
         self.failIf(css_sprite_is_up_to_date("p1"))
         # file modified after last building
@@ -262,13 +277,6 @@ class UtilsTest(SettingsTestCase):
         f = open(os.path.join(self.rootTestsDir, "source", "b.jpg"), "w")
         f.close()
         self.failIf(css_sprite_is_up_to_date("p1"))
-        return
-        self.failUnless(check_last_log("CSS_BUILDER_SPRITES is not set"))
-        self.settings_manager.set()
-        css_sprite_needs_rebuild("wrong name")
-        self.failUnless(check_last_log(
-                    "wrong name sprite does not exist in CSS_BUILDER_SPRITES"))
-        self.failUnless(css_sprite_needs_rebuild("p1"))
 
     def test_build_package(self):
         os.mkdir(os.path.join(self.rootTestsDir, "data"))
@@ -312,19 +320,18 @@ require b.css\n// require c.css")
                                 "sprite#2": {"orientation": "horizontal"}})
 
         self.failUnlessEqual(create_css_sprite_file("sprite#1", []), None)
-        self.failUnlessRaises(CSSSprite.DoesNotExist, CSSSprite.objects.get,
+        self.failUnlessRaises(Sprite.DoesNotExist, Sprite.objects.get,
                               name="sprite#1")
-        self.sprite_image_1 = SpriteImage("a.png", 40, 60)
+        self.sprite_image_1 = SpriteImageFile("a.png", 40, 60)
         create_css_sprite_file("sprite#2", [self.sprite_image_1])
-        sprite_2 = CSSSprite.objects.get(name="sprite#2")
-        image_1 = CSSSpriteImage.objects.get(path="a.png", sprite=sprite_2)
+        sprite_2 = Sprite.objects.get(name="sprite#2")
+        image_1 = SpriteImage.objects.get(path="a.png", sprite=sprite_2)
         self.failUnlessEqual(image_1.x, 40)
         self.failUnlessEqual(image_1.y, 60)
         self.failUnlessEqual(image_1.sprite, sprite_2)
 
-        self.sprite_image_1 = SpriteImage("a.png", 60, 80)
+        self.sprite_image_1 = SpriteImageFile("a.png", 60, 80)
         create_css_sprite_file("sprite#2", [self.sprite_image_1])
-        image_1 = CSSSpriteImage.objects.get(path="a.png", sprite=sprite_2)
+        image_1 = SpriteImage.objects.get(path="a.png", sprite=sprite_2)
         self.failUnlessEqual(image_1.x, 60)
         self.failUnlessEqual(image_1.y, 80)
-
