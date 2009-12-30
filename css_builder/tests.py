@@ -74,11 +74,6 @@ class UtilsTest(SettingsTestCase):
              None)
 
     def test_add_css_sprites(self):
-        self.settings_manager.set(
-                CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"),
-                CSS_BUILDER_DEST=os.path.join(self.rootTestsDir, "dest"),
-                CSS_BUILDER_SPRITES={"s1": {"files": [r".*\.png"],
-                                            "orientation": "horizontaly"}})
         os.mkdir(os.path.join(self.rootTestsDir, "source"))
         os.mkdir(os.path.join(self.rootTestsDir, "dest"))
         css_file = os.path.join(self.rootTestsDir, "source", "t.css")
@@ -90,11 +85,41 @@ class UtilsTest(SettingsTestCase):
         f.close()
 
         add_css_sprites(css_file)
+        self.failUnless(check_last_log("CSS_BUILDER_SOURCE is not set"))
+        self.settings_manager.set(
+                    CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"))
+        add_css_sprites(css_file)
+        self.failUnless(check_last_log("CSS_BUILDER_DEST is not set"))
+
+        self.settings_manager.set(
+                CSS_BUILDER_DEST=os.path.join(self.rootTestsDir, "dest"),
+                CSS_BUILDER_SPRITES={"s1": {"files": [r".*\.png"],
+                                            "orientation": "horizontaly"}})
+
+        add_css_sprites(css_file)
         f = open(css_file, "r")
         content = f.read()
         f.close()
         self.failUnlessEqual(content,
-            "background: #808080 url(path/to/sprite) no-repeat 0px 0px;")
+                "background: #808080 url(s1) no-repeat 0px 0px;")
+
+        f = open(css_file, "w")
+        f.write(
+            "background: #808080 url(a.png) no-repeat top left;")
+        f.close()
+        add_css_sprites(css_file, all=True)
+        f = open(css_file, "r")
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content,
+                "background: #808080 url(s1) no-repeat 0px 0px;")
+
+        add_css_sprites(css_file)
+        f = open(css_file, "r")
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content,
+            "background: #808080 url(s1) no-repeat 0px 0px;")
 
         self.settings_manager.set(
                             CSS_BUILDER_SPRITES={"s1": {"files": [r".*\.png"],

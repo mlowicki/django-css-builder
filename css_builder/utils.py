@@ -3,6 +3,7 @@ import os
 import re
 import commands
 import logging
+from contextlib import closing
 
 from django.conf import settings
 from django import template
@@ -169,8 +170,6 @@ def get_css_sprite_data(path):
     Parameters:
         path <str> - relative path
     """
-    if not check_basic_config():
-        return None
     abspath = os.path.join(settings.CSS_BUILDER_SOURCE, path)
     sprite_name = found_css_sprite(abspath)
     if sprite_name == None:
@@ -182,23 +181,27 @@ def get_css_sprite_data(path):
     if not os.path.exists(abspath):
         log("get_css_sprite_data", "%s (%s) does not exists." % (path, abspath))
         return None
-    return {"bg_image_url": "path/to/sprite", "bg_x": "%dpx" % image.x,
+
+    return {"bg_image_url": sprite_name, "bg_x": "%dpx" % image.x,
             "bg_y": "%dpx" % image.y}
 
 
-def add_css_sprites(path):
+def add_css_sprites(path, all=False):
     """
     Replace path in background and background-image rules by path to the
-    sprite image.
+    sprite image and add correct background position.
 
     Parameters:
         path <str>    - absolute path to the input file
-        all <bool>    - indicates if only add sprites to the rules with comment
-                        /* 2sprite */ at the end or all
+        all <bool>    - indicates if only add css sprite to the rules with
+                        comment /* 2sprite */ at the end line or to all
+                        background-images styles
     """
-    f = open(path, "r")
-    content = f.read()
-    f.close()
+    if not check_basic_config():
+        return
+
+    with closing(open(path, "r")) as f:
+        content = f.read()
 
     def to_sprite(matchobj):
         data = matchobj.groupdict()
@@ -210,14 +213,11 @@ def add_css_sprites(path):
                                 sprite_data["bg_image_url"], data["bg_repeat"],
                                 sprite_data["bg_x"], sprite_data["bg_y"])
 
-    if all==True:
-        content = re.sub(BACKGROUND, to_sprite, content)
-    else:
-        content = re.sub(BACKGROUND_SPRITE, to_sprite, content)
-
-    f = open(path, "w")
-    f.write(content)
-    f.close()
+    with closing(open(path, "w")) as f:
+        if all==True:
+            f.write(re.sub(BACKGROUND, to_sprite, content))
+        else:
+            f.write(re.sub(BACKGROUND_SPRITE, to_sprite, content))
 
 
 def add_embedding_images(path):
