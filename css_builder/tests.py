@@ -12,13 +12,15 @@ import time
 
 from django.test import TestCase
 from django.conf import settings
+from django import template
+from django.http import HttpRequest
 
 from css_builder.utils import (add_embedding_images, add_css_sprites, here,
                                BACKGROUND_REPEAT, BACKGROUND_COLOR,
                                BACKGROUND_POSITION, BACKGROUND,
                                BACKGROUND_IMAGE, build_package,
                                build_css_sprite, ImageFile, SpriteImageFile,
-                               css_sprite_is_up_to_date,
+                               css_sprite_is_up_to_date, text_2_b64,
                                found_css_sprite, create_css_sprite_file)
 from css_builder.tests_utils import SettingsTestCase, check_last_log
 from css_builder.models import SpriteImage, Sprite
@@ -136,58 +138,63 @@ class UtilsTest(SettingsTestCase):
         self.failUnlessEqual(content, "background: none;")
 
     def test_add_embedding_images(self):
-        self.settings_manager.set(CSS_BUILDER_SOURCE=os.path.join(
-                                                self.rootTestsDir, "source"))
-        os.mkdir(os.path.join(self.rootTestsDir, "source"))
-        f = open(os.path.join(self.rootTestsDir, "source", "a.png"), "w")
-        f.write("abcdef")
+        self.settings_manager.set(
+                CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, 'source'),
+                MEDIA_URL='/site_media/',
+                MEDIA_ROOT=os.path.join(self.rootTestsDir, 'dest'))
+        os.mkdir(settings.MEDIA_ROOT)
+        os.mkdir(settings.CSS_BUILDER_SOURCE)
+        f = open(os.path.join(settings.MEDIA_ROOT, 'a.png'), 'w')
+        f.write('abcdef')
         f.close()
-        f = open(os.path.join(self.rootTestsDir, "source", "a.jpg"), "w")
-        f.write("abcdefghij")
-        f.close()
-        css_file = os.path.join(self.rootTestsDir, "source", "t.css")
+        css_file = os.path.join(settings.CSS_BUILDER_SOURCE, 't.css')
         f = open(css_file, "w")
-        f.write("background-image: url(a.png); /* 2b64 */")
+        f.write('background-image: url(/site_media/a.png); /* 2b64 */')
         f.close()
         add_embedding_images(css_file)
-        f = open(css_file, "r")
-        content = f.read()
-        f.close()
-        self.failUnlessEqual(content, "background-image: url(%s);" %\
-                        ("data:image/png;base64," + "abcdef".encode("base64")))
-
-        f = open(css_file, "w")
-        f.write("background: #808080 url(a.jpg) no-repeat 0px 0px; /*2b64*/")
-        f.close()
-        add_embedding_images(css_file)
-        f = open(css_file, "r")
+        f = open(css_file, 'r')
         content = f.read()
         f.close()
         self.failUnlessEqual(content,
-            "background: #808080 url(data:image/jpg;base64,%s) no-repeat 0px 0px;"
-            % "abcdefghij".encode("base64"))
+                        'background-image: url("data:image/png;base64,%s");' %\
+                        text_2_b64('abcdef'))
 
+        f = open(os.path.join(settings.MEDIA_ROOT, 'a.jpg'), 'w')
+        f.write('abcdefghij')
+        f.close()
         f = open(css_file, "w")
-        f.write("background: red url(a.png) no-repeat top left; /* 2b64 */ ")
+        c = 'background: #808080 url(/site_media/a.jpg)'
+        c += ' no-repeat 0px 0px; /*2b64*/'
+        f.write(c)
         f.close()
         add_embedding_images(css_file)
         f = open(css_file, "r")
         content = f.read()
         f.close()
-        self.failUnlessEqual(content,
-            "background: red url(data:image/png;base64,%s) no-repeat top left;"
-            % ("abcdef".encode("base64")))
+        self.failUnlessEqual(content,'background: #808080 url("data:image/jpg;\
+base64,%s") no-repeat 0px 0px;' % text_2_b64('abcdefghij'))
 
-        f = open(css_file, "w")
-        f.write("background: red url(a.png) no-repeat top left;  /* 2b64  */  ")
+        f = open(css_file, 'w')
+        f.write('background: red url("/site_media/a.png") no-repeat top left;\
+/* 2b64 */ ')
         f.close()
         add_embedding_images(css_file)
-        f = open(css_file, "r")
+        f = open(css_file, 'r')
         content = f.read()
         f.close()
-        self.failUnlessEqual(content,
-            "background: red url(data:image/png;base64,%s) no-repeat top left;"
-            % ("abcdef".encode("base64")))
+        self.failUnlessEqual(content,'background: red url("data:image/png;\
+base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
+
+        f = open(css_file, 'w')
+        f.write('background: red url(/site_media/a.png) no-repeat top left;\
+  /* 2b64  */  ')
+        f.close()
+        add_embedding_images(css_file)
+        f = open(css_file, 'r')
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content, 'background: red url("data:image/png;\
+base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
 
     def test_build_css_sprite(self):
         self.settings_manager.set(
@@ -302,6 +309,83 @@ class UtilsTest(SettingsTestCase):
         f = open(os.path.join(self.rootTestsDir, "source", "b.jpg"), "w")
         f.close()
         self.failIf(css_sprite_is_up_to_date("p1"))
+
+    def test_css_package(self):
+        source_path = os.path.join(self.rootTestsDir, 'source')
+        dest_path = os.path.join(self.rootTestsDir, 'dest')
+        os.mkdir(source_path)
+        os.mkdir(dest_path)
+        self.settings_manager.set(
+                CSS_BUILDER_PACKAGES={'p1': ['.*\.css']},
+                CSS_BUILDER_SOURCE=source_path,
+                CSS_BUILDER_DEST=dest_path,
+                MEDIA_ROOT=dest_path,
+                MEDIA_URL='/site_media/',
+                DEBUG=False)
+
+        f = open(os.path.join(source_path, 'a.css'), 'w')
+        f.write('div#a { position: absolute; }')
+        f.close()
+
+        t = template.Template('{% load css_tags %}{% css_package "p1" %}')
+        c = template.Context({})
+        compressed = '<link rel="stylesheet" type="text/css" \
+href="%s-min.css" />' % (settings.MEDIA_URL + 'p1')
+        uncompressed = '<link rel="stylesheet" type="text/css" \
+href="%s.css" />' % (settings.MEDIA_URL + 'p1')
+
+        self.failUnlessEqual(t.render(c), compressed)
+        self.failIf(os.path.exists(os.path.join(dest_path, "p1.css")))
+        self.failIf(os.path.exists(os.path.join(dest_path, "p1-min.css")))
+
+        self.settings_manager.set(DEBUG=True)
+        self.failUnlessEqual(t.render(c), uncompressed)
+        p1_path = os.path.join(dest_path, 'p1.css')
+        self.failUnless(os.path.exists(p1_path))
+        f = open(p1_path, 'r')
+        self.failUnless(f.read(), 'div#a { position: absolute; }')
+        f.close()
+
+        shutil.rmtree(dest_path)
+        os.mkdir(dest_path)
+        self.settings_manager.set(CSS_BUILDER_COMPRESS=True)
+        self.failUnlessEqual(t.render(c), compressed)
+        p1_path = os.path.join(dest_path, 'p1-min.css')
+        self.failUnless(os.path.exists(p1_path))
+        f = open(p1_path, 'r')
+        self.failUnlessEqual(f.read(), 'div#a{position:absolute;}')
+
+        shutil.rmtree(dest_path)
+        os.mkdir(dest_path)
+        self.settings_manager.set(CSS_BUILDER_COMPRESS=False)
+        self.failUnlessEqual(t.render(c), uncompressed)
+        p1_path = os.path.join(dest_path, 'p1.css')
+        self.failUnless(os.path.exists(p1_path))
+        f = open(p1_path, 'r')
+        self.failUnlessEqual(f.read(), 'div#a { position: absolute; }')
+
+        shutil.rmtree(dest_path)
+        os.mkdir(dest_path)
+        self.settings_manager.set(CSS_BUILDER_COMPRESS=True)
+        request = HttpRequest()
+        request.GET["css_compress"] = "0"
+        c = template.Context({"request": request})
+        self.failUnlessEqual(t.render(c), uncompressed)
+        p1_path = os.path.join(dest_path, 'p1.css')
+        self.failUnless(os.path.exists(p1_path))
+        f = open(p1_path, 'r')
+        self.failUnlessEqual(f.read(), 'div#a { position: absolute; }')
+
+        shutil.rmtree(dest_path)
+        os.mkdir(dest_path)
+        self.settings_manager.set(CSS_BUILDER_COMPRESS=False)
+        request.GET["css_compress"] = "1"
+        c = template.Context({"request": request})
+        self.failUnlessEqual(t.render(c), compressed)
+        p1_path = os.path.join(dest_path, 'p1-min.css')
+        self.failUnless(os.path.exists(p1_path))
+        f = open(p1_path, 'r')
+        self.failUnlessEqual(f.read(), 'div#a{position:absolute;}')
 
     def test_build_package(self):
         os.mkdir(os.path.join(self.rootTestsDir, "data"))

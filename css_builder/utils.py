@@ -37,7 +37,9 @@ CONSOLE.setFormatter(logging.Formatter(format))
 
 STREAM_HANDLERS = [CONSOLE, LOG_FILE]
 
-def log(logger_name, msg):
+def log(logger_name, *messages):
+    msg = ", ".join(messages)
+
     for sh in STREAM_HANDLERS:
         logging.getLogger(logger_name).removeHandler(sh)
 
@@ -52,7 +54,7 @@ BACKGROUND_REPEAT = r"(?P<bg_repeat>(repeat)|(no-repeat)|(repeat-x)|(repeat-y))"
 # TODO: add color names like green, yellow etc
 BACKGROUND_COLOR = r"(?P<bg_color>((#[a-fA-F0-9]{6})|(#[a-fA-F0-9]{3})|(red)))"
 BACKGROUND_POSITION = r"(?P<bg_position>[a-zA-Z0-9-%]+\ +[a-zA-Z0-9-%]+)"
-BACKGROUND_IMAGE = r"(?P<bg_image>url\((?P<bg_image_url>[^)]+)\))"
+BACKGROUND_IMAGE = r"(?P<bg_image>url\(['\"]?(?P<bg_image_url>[^)'\"]+)['\"]?\))"
 
 BACKGROUND = r"background:\s+%s\s+%s\s+%s\s+%s\s*;" % (BACKGROUND_COLOR,
                     BACKGROUND_IMAGE, BACKGROUND_REPEAT, BACKGROUND_POSITION) 
@@ -61,6 +63,11 @@ BACKGROUND_B64 = BACKGROUND + r"\s*\/\*\s*2b64\s*\*\/\s*"
 BACKGROUND_SHORT = r"background-image:\s+%s\s*;" % BACKGROUND_IMAGE
 BACKGROUND_SHORT_SPRITE = BACKGROUND_SHORT + r"\s*\/\*\s*2sprite\s*\*\/\s*"
 BACKGROUND_SHORT_B64 = BACKGROUND_SHORT + r"\s*\/\*\s*2b64\s*\*\/\s*"
+
+
+def commonpostfix(list):
+    prefix = os.path.commonprefix(list)
+    return list[0][len(prefix):]
 
 
 def check_basic_config():
@@ -121,22 +128,25 @@ def build_package(package_name, check_configuration=True, **options):
         log("build_package", "Unknown package: %s" % package_name)
     else:
         try:
+            if hasattr(settings ,"CSS_BUILDER_DEST"):
+                dest_dir = settings.CSS_BUILDER_DEST
+            else:
+                dest_dir = settings.MEDIA_ROOT
+
             compress = options.get("compress", False)
             files, dependencies = get_package_files(
                                 settings.CSS_BUILDER_PACKAGES[package_name],
                                 settings.CSS_BUILDER_SOURCE)
-
             if package_needs_rebuilding(files, package_name):
-                output = os.path.join(settings.CSS_BUILDER_DEST,
-                                      package_name + ".css")
+                output = os.path.join(dest_dir, package_name + ".css")
                 concatenate_package_files(output, dependencies)
                 add_css_sprites(output)
                 add_embedding_images(output)
                 if compress:
                     compress_package(package_name)
             else:
-                if compress and not os.path.exists(os.path.join(
-                        settings.CSS_BUILDER_DEST, package_name + "-min.css")):
+                if compress and not os.path.exists(
+                        os.path.join(dest_dir, package_name + "-min.css")):
                     compress_package(package_name)
         except Exception, e:
             log("build_package", *e)
@@ -220,45 +230,64 @@ def add_css_sprites(path, all=False):
             f.write(re.sub(BACKGROUND_SPRITE, to_sprite, content))
 
 
-def add_embedding_images(path):
+def text_2_b64(text):
+    """
+    Parameters:
+        text <str>
+    Return
+        <str> - text in base64
+    """
+    return text.encode("base64").replace("\n", "")
+
+
+def url_2_b64(url):
+    """
+    Parameters:
+        url <str>
+    Return:
+        (<str>, <str>) - (image extension, image content in base64)
+    """
+    image_path = commonpostfix([url, settings.MEDIA_URL])
+    with closing(open(os.path.join(settings.MEDIA_ROOT, image_path), "r"))\
+    as f:
+        content_b64 = text_2_b64(f.read())
+    root, ext = os.path.splitext(url)
+    return (ext[1:], content_b64)
+
+
+def add_embedding_images(path, output=None):
     """
     Create data streams for embedding image from background and
     background-image styles.
 
     Parameters:
         path <str> - absolute path to the input file
+        output <str>
     """
-    f = open(path, "r")
-    content = f.read()
-    f.close()
+    with closing(open(path, "r")) as f:
+        content = f.read()
 
     def background_image_to_b64(matchobj):
         data = matchobj.groupdict()
-        f = open(os.path.join(settings.CSS_BUILDER_SOURCE,
-                              data["bg_image_url"]), "r")
-        content_b64 = f.read().encode("base64")
-        f.close()
-        root, ext = os.path.splitext(data["bg_image_url"])
-        return "background-image: url(data:image/%s;base64,%s);" %\
-                                                            (ext[1:], content_b64)
+        (ext, b64) = url_2_b64(data['bg_image_url'])
+        return 'background-image: url("data:image/%s;base64,%s");' %\
+            (ext, b64,)
 
     def background_to_b64(matchobj):
         data = matchobj.groupdict()
-        f = open(os.path.join(settings.CSS_BUILDER_SOURCE,
-                              data["bg_image_url"]), "r")
-        content_b64 = f.read().encode("base64")
-        f.close()
-        root, ext = os.path.splitext(data["bg_image_url"])
-        return "background: %s url(data:image/%s;base64,%s) %s %s;" %\
-            (data["bg_color"], ext[1:], content_b64, data["bg_repeat"],
-             data["bg_position"],)
+        (ext, b64) = url_2_b64(data['bg_image_url'])
+        return 'background: %s url("data:image/%s;base64,%s") %s %s;' %\
+            (data['bg_color'], ext, b64, data['bg_repeat'],
+             data['bg_position'],)
 
-    new_content = re.sub(BACKGROUND_SHORT_B64, background_image_to_b64, content)
-    new_content = re.sub(BACKGROUND_B64, background_to_b64, new_content)
+    content = re.sub(BACKGROUND_SHORT_B64, background_image_to_b64, content)
+    content = re.sub(BACKGROUND_B64, background_to_b64, content)
 
-    f = open(path, "w")
-    f.write(new_content)
-    f.close()
+    if output == None:
+        output = path
+
+    with closing(open(output, 'w')) as f:
+        f.write(content)
 
 
 def build_all_packages(**options):
@@ -277,12 +306,14 @@ def compress_package(package_name):
         package_name <str>
     """
     in_file = os.path.join(settings.CSS_BUILDER_DEST, package_name + ".css")
-    out_file = os.path.join(settings.JS_BUILDER_DEST, package_name + "-min.css")
+    f = open(in_file)
+    f.close()
+    out_file = os.path.join(settings.CSS_BUILDER_DEST, package_name + "-min.css")
     command = "java -jar %s %s -o %s" % (here(("yuicompressor-2.4.2",
                                 "yuicompressor-2.4.2.jar",)), in_file, out_file)
     status, output = commands.getstatusoutput(command)
     if status != 0:
-        log("yui compressor", error(output))
+        log("yui compressor", output)
 
 
 class ImageFile(object):
