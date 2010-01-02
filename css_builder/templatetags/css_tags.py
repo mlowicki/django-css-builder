@@ -89,4 +89,3 @@ class CssFileNode(template.Node):
             add_css_sprites(output_abspath)
         url = os.path.join(settings.MEDIA_URL, self.path)
         return '<link rel="stylesheet" type="text/css" href="%s" />' % url
-

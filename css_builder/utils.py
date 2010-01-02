@@ -1,16 +1,18 @@
 
-from contextlib import closing
-from css_builder.core_utils import get_package_files, concatenate_package_files, \
-    find_package_files
-from css_builder.models import SpriteImage, Sprite
-from django import template
-from django.conf import settings
-from django.utils import importlib
 import commands
 import logging
 import os
 import re
+from contextlib import closing
 
+from django import template
+from django.conf import settings
+from django.utils import importlib
+
+from css_builder.core_utils import (get_package_files,
+                                    concatenate_package_files,
+                                    find_package_files)
+from css_builder.models import SpriteImage, Sprite
 
 
 here = lambda x: os.path.join(os.path.abspath(os.path.dirname(__file__)), *x)
@@ -64,6 +66,33 @@ BACKGROUND_SHORT_SPRITE = BACKGROUND_SHORT + r"\s*\/\*\s*2sprite\s*\*\/\s*"
 BACKGROUND_SHORT_B64 = BACKGROUND_SHORT + r"\s*\/\*\s*2b64\s*\*\/\s*"
 
 
+def check_settings(properties):
+    def decorator(func):
+        def inner(*args, **kwargs):
+            success = True
+            for property in properties:
+                if not hasattr(settings, property):
+                    log(func.__name__, '%s is not set' % property)
+                    success = False
+            if success == False:
+                return None
+            return func(*args, **kwargs)
+        return inner
+    return decorator
+
+
+def get_dest_dir():
+    """
+    Return MEDIA_ROOT or if set CSS_BUILDER_DEST
+
+    Return:
+        <str>
+    """
+    if not hasattr(settings, 'CSS_BUILDER_DEST'):
+        return settings.MEDIA_ROOT
+    else:
+        return settings.CSS_BUILDER_DEST
+
 
 def cut_path(path, start):
     prefix = os.path.commonprefix([path, start])
@@ -73,23 +102,32 @@ def cut_path(path, start):
 def check_basic_config():
     """
     Check if CSS_BUILDER_* are set and correct
+
+    Return:
+        <bool>
     """
     success = True
-    if not hasattr(settings, "CSS_BUILDER_DEST"):
-        log("check_basic_config", "CSS_BUILDER_DEST is not set")
-        success = False
+    if not hasattr(settings, 'CSS_BUILDER_DEST'):
+        if not hasattr(settings, 'MEDIA_ROOT'):
+            log('check_basic_config',
+                'MEDIA_ROOT and CSS_BUILDER_DEST are not set')
+            success = False
+        else:
+            if not os.path.exists(settings.MEDIA_ROOT):
+                log('check_basic_config', 'MEDIA_ROOT directory does not exist')
+                success = False
     else:
         if not os.path.exists(settings.CSS_BUILDER_DEST):
-            log("check_basic_config",
-                "Destination directory does not exist: %s" %\
+            log('check_basic_config',
+                'Destination directory does not exist: %s' %\
                 settings.CSS_BUILDER_DEST)
             success = False
-    if not hasattr(settings, "CSS_BUILDER_SOURCE"):
-        log("check_basic_config", "CSS_BUILDER_SOURCE is not set")
+    if not hasattr(settings, 'CSS_BUILDER_SOURCE'):
+        log('check_basic_config', 'CSS_BUILDER_SOURCE is not set')
         success = False
     else:
         if not os.path.exists(settings.CSS_BUILDER_SOURCE):
-            log("check_basic_config", "Source directory does not exist: %s" %
+            log('check_basic_config', 'Source directory does not exist: %s' %
                                                 settings.CSS_BUILDER_SOURCE)
             success = False
     #if not hasattr(settings, "CSS_BUILDER_PACKAGES"):
@@ -103,8 +141,7 @@ def package_needs_rebuilding(files, package_name):
     TODO
         check if some files were added since last building
     """
-    package_file = os.path.join(
-                            settings.CSS_BUILDER_DEST, package_name + ".css")
+    package_file = os.path.join(get_dest_dir(), package_name + ".css")
     if not os.path.exists(package_file):
         return True
     package_m_time = os.path.getmtime(package_file)
@@ -112,6 +149,7 @@ def package_needs_rebuilding(files, package_name):
         if os.path.getmtime(f) > package_m_time:
             return True
     return False
+
 
 def build_package(package_name, check_configuration=True, **options):
     """
@@ -128,30 +166,26 @@ def build_package(package_name, check_configuration=True, **options):
         log("build_package", "Unknown package: %s" % package_name)
     else:
         try:
-            if hasattr(settings ,"CSS_BUILDER_DEST"):
-                dest_dir = settings.CSS_BUILDER_DEST
-            else:
-                dest_dir = settings.MEDIA_ROOT
-
             compress = options.get("compress", False)
             files, dependencies = get_package_files(
                                 settings.CSS_BUILDER_PACKAGES[package_name],
                                 settings.CSS_BUILDER_SOURCE)
             if package_needs_rebuilding(files, package_name):
-                output = os.path.join(dest_dir, package_name + ".css")
+                output = os.path.join(get_dest_dir(), package_name + ".css")
                 concatenate_package_files(output, dependencies)
                 add_css_sprites(output)
                 add_embedding_images(output)
                 if compress:
                     compress_package(package_name)
             else:
-                if compress and not os.path.exists(
-                        os.path.join(dest_dir, package_name + "-min.css")):
+                if compress and not os.path.exists(os.path.join(
+                                get_dest_dir(), package_name + "-min.css")):
                     compress_package(package_name)
         except Exception, e:
             log("build_package", *e)
 
 
+@check_settings(['CSS_BUILDER_SPRITES'])
 def found_css_sprite(path):
     """
     Return sprite which path belongs for
@@ -161,9 +195,9 @@ def found_css_sprite(path):
     Return:
         None or <str>
     """
-    if not hasattr(settings, "CSS_BUILDER_SPRITES"):
-        log("found_css_sprite", "CSS_BUILDER_SPRITES is not set")
-        return None
+    #if not hasattr(settings, "CSS_BUILDER_SPRITES"):
+    #    log("found_css_sprite", "CSS_BUILDER_SPRITES is not set")
+    #    return None
 
     for sprite in settings.CSS_BUILDER_SPRITES:
         
@@ -308,10 +342,10 @@ def compress_package(package_name):
     Parameters:
         package_name <str>
     """
-    in_file = os.path.join(settings.CSS_BUILDER_DEST, package_name + ".css")
+    in_file = os.path.join(get_dest_dir(), package_name + ".css")
     f = open(in_file)
     f.close()
-    out_file = os.path.join(settings.CSS_BUILDER_DEST, package_name + "-min.css")
+    out_file = os.path.join(get_dest_dir(), package_name + "-min.css")
     command = "java -jar %s %s -o %s" % (here(("yuicompressor-2.4.2",
                                 "yuicompressor-2.4.2.jar",)), in_file, out_file)
     status, output = commands.getstatusoutput(command)
@@ -480,7 +514,7 @@ def css_sprite_is_up_to_date(sprite_name):
     cfg = settings.CSS_BUILDER_SPRITES[sprite_name]
     current_files = find_package_files(cfg["files"],
                                        settings.CSS_BUILDER_SOURCE)
-    sprite_file = os.path.join(settings.CSS_BUILDER_DEST, sprite_name)
+    sprite_file = os.path.join(get_dest_dir(), sprite_name)
 
     if not os.path.exists(sprite_file): # sprite files doesn't exist
         return False

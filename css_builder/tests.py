@@ -76,66 +76,67 @@ class UtilsTest(SettingsTestCase):
              None)
 
     def test_add_css_sprites(self):
-        os.mkdir(os.path.join(self.rootTestsDir, "source"))
-        os.mkdir(os.path.join(self.rootTestsDir, "dest"))
-        css_file = os.path.join(self.rootTestsDir, "source", "t.css")
-        f = open(css_file, "w")
+        os.mkdir(os.path.join(self.rootTestsDir, 'source'))
+        os.mkdir(os.path.join(self.rootTestsDir, 'dest'))
+        css_file = os.path.join(self.rootTestsDir, 'source', 't.css')
+        f = open(css_file, 'w')
         f.write(
-            "background: #808080 url(a.png) no-repeat top left; /* 2sprite */")
+            'background: #808080 url(a.png) no-repeat top left; /* 2sprite */')
         f.close()
-        f = open(os.path.join(self.rootTestsDir, "source", "a.png"), "w")
+        f = open(os.path.join(self.rootTestsDir, 'source', 'a.png'), 'w')
         f.close()
 
         add_css_sprites(css_file)
-        self.failUnless(check_last_log("CSS_BUILDER_SOURCE is not set"))
+        self.failUnless(check_last_log('CSS_BUILDER_SOURCE is not set'))
         self.settings_manager.set(
-                    CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"))
+                CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, 'source'),
+                MEDIA_ROOT='')
         add_css_sprites(css_file)
-        self.failUnless(check_last_log("CSS_BUILDER_DEST is not set"))
+        self.failUnless(check_last_log('MEDIA_ROOT directory does not exist'))
 
         self.settings_manager.set(
-                CSS_BUILDER_DEST=os.path.join(self.rootTestsDir, "dest"),
-                CSS_BUILDER_SPRITES={"s1": {"files": [r".*\.png"],
-                                            "orientation": "horizontaly"}})
+                MEDIA_ROOT=os.path.join(self.rootTestsDir, 'dest'),
+                CSS_BUILDER_SPRITES={'s1': {'files': [r'.*\.png'],
+                                            "orientation": 'horizontaly'}})
 
         add_css_sprites(css_file)
         f = open(css_file, "r")
         content = f.read()
         f.close()
         self.failUnlessEqual(content,
-                "background: #808080 url(s1) no-repeat 0px 0px;")
+                'background: #808080 url(s1) no-repeat 0px 0px;')
 
         f = open(css_file, "w")
         f.write(
-            "background: #808080 url(a.png) no-repeat top left;")
+            'background: #808080 url(a.png) no-repeat top left;')
         f.close()
         add_css_sprites(css_file, all=True)
         f = open(css_file, "r")
         content = f.read()
         f.close()
         self.failUnlessEqual(content,
-                "background: #808080 url(s1) no-repeat 0px 0px;")
+                'background: #808080 url(s1) no-repeat 0px 0px;')
 
         add_css_sprites(css_file)
-        f = open(css_file, "r")
+        f = open(css_file, 'r')
         content = f.read()
         f.close()
         self.failUnlessEqual(content,
-            "background: #808080 url(s1) no-repeat 0px 0px;")
+            'background: #808080 url(s1) no-repeat 0px 0px;')
 
         self.settings_manager.set(
-                            CSS_BUILDER_SPRITES={"s1": {"files": [r".*\.png"],
-                                            "orientation": "wrong name"}})
-        f = open(css_file, "w")
+                            CSS_BUILDER_SPRITES={'s1': {'files': [r'.*\.png'],
+                                            'orientation': 'wrong name'}})
+        f = open(css_file, 'w')
         f.write(
-            "background: #808080 url(a.png) no-repeat top left; /* 2sprite */")
+            'background: #808080 url(a.png) no-repeat top left; /* 2sprite */')
         f.close()
 
         add_css_sprites(css_file)
-        f = open(css_file, "r")
+        f = open(css_file, 'r')
         content = f.read()
         f.close()
-        self.failUnlessEqual(content, "background: none;")
+        self.failUnlessEqual(content, 'background: none;')
 
     def test_add_embedding_images(self):
         self.settings_manager.set(
@@ -198,7 +199,7 @@ base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
 
     def test_build_css_sprite(self):
         self.settings_manager.set(
-            CSS_BUILDER_DEST=os.path.join(self.rootTestsDir, "dest"),
+            MEDIA_ROOT=os.path.join(self.rootTestsDir, "dest"),
             CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"),
             CSS_BUILDER_SPRITES={"p1": {"files": [r".*\.png"],
                                         "orientation": "vertically"}})
@@ -236,7 +237,7 @@ base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
 
     def test_found_css_sprite(self):
         self.settings_manager.set(
-                CSS_BUILDER_DEST=os.path.join(self.rootTestsDir, "dest"),
+                MEDIA_ROOT=os.path.join(self.rootTestsDir, "dest"),
                 CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"),
                 CSS_BUILDER_PACKAGES={})
         os.mkdir(os.path.join(self.rootTestsDir, "source"))
@@ -277,7 +278,7 @@ base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
 
     def test_css_sprite_is_up_to_date(self):
         self.settings_manager.set(
-                CSS_BUILDER_DEST=os.path.join(self.rootTestsDir, "dest"),
+                MEDIA_ROOT=os.path.join(self.rootTestsDir, "dest"),
                 CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"),
                 CSS_BUILDER_SPRITES={"p1": {"files": [r".*\.jpg"]}})
         os.mkdir(os.path.join(self.rootTestsDir, "source"))
@@ -317,7 +318,6 @@ base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
         os.mkdir(dest_path)
         self.settings_manager.set(
                 CSS_BUILDER_SOURCE=source_path,
-                CSS_BUILDER_DEST=dest_path,
                 MEDIA_ROOT=dest_path,
                 MEDIA_URL='/site_media/',
                 DEBUG=True)
@@ -346,7 +346,6 @@ type="text/css" href="/site_media/a/b.css" />')
         self.settings_manager.set(
                 CSS_BUILDER_PACKAGES={'p1': ['.*\.css']},
                 CSS_BUILDER_SOURCE=source_path,
-                CSS_BUILDER_DEST=dest_path,
                 MEDIA_ROOT=dest_path,
                 MEDIA_URL='/site_media/',
                 DEBUG=False)
@@ -422,7 +421,7 @@ href="%s.css" />' % (settings.MEDIA_URL + 'p1')
 
         self.settings_manager.set(
                 CSS_BUILDER_PACKAGES={"p1": [], "p2": ["a.css"]},
-                CSS_BUILDER_DEST=os.path.join(self.rootTestsDir, "dest"),
+                MEDIA_ROOT=os.path.join(self.rootTestsDir, "dest"),
                 CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"))
 
         # wrong package name
@@ -445,7 +444,7 @@ href="%s.css" />' % (settings.MEDIA_URL + 'p1')
         f.write("div#c {}")
         f.close()
         build_package("p2")
-        f = open(os.path.join(settings.CSS_BUILDER_DEST, "p2.css"), "r")
+        f = open(os.path.join(settings.MEDIA_ROOT, "p2.css"), "r")
         content = f.read()
         f.close()
         self.failUnlessEqual(content, "div#b {}\ndiv#c {}\n// \
