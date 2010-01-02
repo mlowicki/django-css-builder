@@ -1,18 +1,17 @@
 
-import os
-import re
+from contextlib import closing
+from css_builder.core_utils import get_package_files, concatenate_package_files, \
+    find_package_files
+from css_builder.models import SpriteImage, Sprite
+from django import template
+from django.conf import settings
+from django.utils import importlib
 import commands
 import logging
-from contextlib import closing
+import os
+import re
 
-from django.conf import settings
-from django import template
-from django.utils import importlib
 
-from css_builder.core_utils import (get_package_files,
-                                    concatenate_package_files,
-                                    find_package_files,)
-from css_builder.models import SpriteImage, Sprite
 
 here = lambda x: os.path.join(os.path.abspath(os.path.dirname(__file__)), *x)
 
@@ -65,9 +64,10 @@ BACKGROUND_SHORT_SPRITE = BACKGROUND_SHORT + r"\s*\/\*\s*2sprite\s*\*\/\s*"
 BACKGROUND_SHORT_B64 = BACKGROUND_SHORT + r"\s*\/\*\s*2b64\s*\*\/\s*"
 
 
-def commonpostfix(list):
-    prefix = os.path.commonprefix(list)
-    return list[0][len(prefix):]
+
+def cut_path(path, start):
+    prefix = os.path.commonprefix([path, start])
+    return path[len(prefix):]
 
 
 def check_basic_config():
@@ -196,7 +196,7 @@ def get_css_sprite_data(path):
             "bg_y": "%dpx" % image.y}
 
 
-def add_css_sprites(path, all=False):
+def add_css_sprites(path, all=False, output=None):
     """
     Replace path in background and background-image rules by path to the
     sprite image and add correct background position.
@@ -223,7 +223,10 @@ def add_css_sprites(path, all=False):
                                 sprite_data["bg_image_url"], data["bg_repeat"],
                                 sprite_data["bg_x"], sprite_data["bg_y"])
 
-    with closing(open(path, "w")) as f:
+    if output == None:
+        output = path
+
+    with closing(open(output, "w")) as f:
         if all==True:
             f.write(re.sub(BACKGROUND, to_sprite, content))
         else:
@@ -247,7 +250,7 @@ def url_2_b64(url):
     Return:
         (<str>, <str>) - (image extension, image content in base64)
     """
-    image_path = commonpostfix([url, settings.MEDIA_URL])
+    image_path = cut_path(url, settings.MEDIA_URL)
     with closing(open(os.path.join(settings.MEDIA_ROOT, image_path), "r"))\
     as f:
         content_b64 = text_2_b64(f.read())

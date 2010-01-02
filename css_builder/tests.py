@@ -310,6 +310,34 @@ base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
         f.close()
         self.failIf(css_sprite_is_up_to_date("p1"))
 
+    def test_css_file(self):
+        source_path = os.path.join(self.rootTestsDir, 'source')
+        dest_path = os.path.join(self.rootTestsDir, 'dest')
+        os.mkdir(source_path)
+        os.mkdir(dest_path)
+        self.settings_manager.set(
+                CSS_BUILDER_SOURCE=source_path,
+                CSS_BUILDER_DEST=dest_path,
+                MEDIA_ROOT=dest_path,
+                MEDIA_URL='/site_media/',
+                DEBUG=True)
+
+        os.mkdir(os.path.join(source_path, 'a'))
+        t = template.Template('{% load css_tags %}{% css_file "a/b.css" %}')
+        c = template.Context({})
+        f = open(os.path.join(source_path, 'a', 'b.css'), 'w')
+        f.write('div#a { position: absolute; }')
+        f.close()
+        self.failUnlessEqual(t.render(c), '<link rel="stylesheet" \
+type="text/css" href="/site_media/a/b.css" />')
+
+        t = template.Template('{% load css_tags %}{% css_file "a/c.css" %}')
+        c = template.Context({})
+        msg = '%s (%s) does not exists.' % ('a/c.css',
+                        os.path.join(settings.CSS_BUILDER_SOURCE, 'a/c.css'))
+        self.failUnlessEqual(t.render(c), '<!--\n%s\n-->' % msg)
+        self.failUnless(check_last_log(msg))
+
     def test_css_package(self):
         source_path = os.path.join(self.rootTestsDir, 'source')
         dest_path = os.path.join(self.rootTestsDir, 'dest')
