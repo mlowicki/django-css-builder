@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from contextlib import closing
+import Image
 
 from django import template
 from django.conf import settings
@@ -200,7 +201,6 @@ def found_css_sprite(path):
     #    return None
 
     for sprite in settings.CSS_BUILDER_SPRITES:
-        
         files = find_package_files(settings.CSS_BUILDER_SPRITES[sprite]["files"],
                                    settings.CSS_BUILDER_SOURCE)
         if path in files:
@@ -226,8 +226,9 @@ def get_css_sprite_data(path):
         log("get_css_sprite_data", "%s (%s) does not exists." % (path, abspath))
         return None
 
-    return {"bg_image_url": sprite_name, "bg_x": "%dpx" % image.x,
-            "bg_y": "%dpx" % image.y}
+    return {
+        "bg_image_url": os.path.join(settings.MEDIA_URL, sprite_name + '.png'),
+        "bg_x": "%dpx" % -image.x, "bg_y": "%dpx" % -image.y}
 
 
 def add_css_sprites(path, all=False, output=None):
@@ -249,7 +250,8 @@ def add_css_sprites(path, all=False, output=None):
 
     def to_sprite(matchobj):
         data = matchobj.groupdict()
-        sprite_data = get_css_sprite_data(data["bg_image_url"])
+        image_path = cut_path(data["bg_image_url"], settings.MEDIA_URL)
+        sprite_data = get_css_sprite_data(image_path)
         if sprite_data == None:
             # TODO
             return "background: none;"
@@ -365,10 +367,8 @@ class ImageFile(object):
             height <int> - image height
             
         """
+        self.width, self.height = Image.open(path).size
         self.path = path
-        # TODO: get image size
-        self.width = 100
-        self.height = 200
 
 
 class SpriteImageFile(ImageFile):
@@ -397,17 +397,20 @@ def build_css_sprite_vertically(images):
     Parameters:
         images [Image]
     Return:
-        [SpriteImage]
+        [SpriteImage], <int>, <int>
     """
     results = []
     current_y = 0
+    width = 0
     for image in images:
         sprite_image = SpriteImageFile(image.path, 0, current_y)
         results.append(sprite_image)
         if current_y == 0:
             current_y += 1
         current_y += image.height
-    return results
+        if image.width > width:
+            width = image.width
+    return results, width, current_y
 
 
 def build_css_sprite_horizontaly(images):
@@ -442,17 +445,27 @@ def build_css_sprite_default(images):
     pass
 
 
-def create_css_sprite_file(sprite_name, images):
+def create_css_sprite_file(sprite_name, images, width, height):
     """
     Create css sprite file and appropriate object in database.
     
     Parameters:
         sprite_name <str>
         images [SpriteImage]
+        width <int>
+        height <int>
     """
     if len(images) == 0:
         return
-    # TODO: create sprite file
+
+    output_image = Image.new(
+                        mode='RGBA', size=(width, height), color=(0,0,0,0))
+
+    for image in images:
+        image_file = Image.open(image.path)
+        output_image.paste(image_file,(image.x, image.y))
+    output_image.save(os.path.join(settings.MEDIA_ROOT, sprite_name + '.png'))
+
     try:
         sprite = Sprite.objects.get(name=sprite_name)
     except Sprite.DoesNotExist:
@@ -489,16 +502,16 @@ def build_css_sprite(sprite_name):
         images.append(ImageFile(path))
     if cfg.has_key("orientation"):
         if cfg["orientation"] == "vertically":
-            sprite_images = build_css_sprite_vertically(images)
+            sprite_images, width, height = build_css_sprite_vertically(images)
         elif cfg["orientation"] == "horizontaly":
-            sprite_images = build_css_sprite_horizontaly(images)
+            sprite_images, width, height = build_css_sprite_horizontaly(images)
         else:
             log("build_css_sprite", "Unrecognized orientation: %s" %\
                 cfg["orientation"])
             return False
     else:
-        sprite_images = build_css_sprite_default(images)
-    create_css_sprite_file(sprite_name, sprite_images)
+        sprite_images, width, height = build_css_sprite_default(images)
+    create_css_sprite_file(sprite_name, sprite_images, width, height)
     return True
 
 
