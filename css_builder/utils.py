@@ -67,6 +67,8 @@ BACKGROUND_SHORT_SPRITE = BACKGROUND_SHORT + r"\s*\/\*\s*2sprite\s*\*\/\s*"
 BACKGROUND_SHORT_B64 = BACKGROUND_SHORT + r"\s*\/\*\s*2b64\s*\*\/\s*"
 
 
+IMAGE_FORMATS = ['PNG', 'JPG', 'JPEG', 'BMP', 'GIF']
+
 def check_settings(properties):
     def decorator(func):
         def inner(*args, **kwargs):
@@ -223,12 +225,15 @@ def get_css_sprite_data(path):
             return None
     image = SpriteImage.objects.get(path = abspath)
     if not os.path.exists(abspath):
-        log("get_css_sprite_data", "%s (%s) does not exists." % (path, abspath))
+        log('get_css_sprite_data', '%s (%s) does not exists' % (path, abspath))
         return None
 
-    return {
-        "bg_image_url": os.path.join(settings.MEDIA_URL, sprite_name + '.png'),
-        "bg_x": "%dpx" % -image.x, "bg_y": "%dpx" % -image.y}
+    format = get_sprite_format(sprite_name)
+    image_url = os.path.join(settings.MEDIA_URL, '%s.%s' %\
+                             (sprite_name, format))
+
+    return { 'bg_image_url': image_url, 'bg_x': '%dpx' % -image.x,
+            'bg_y': '%dpx' % -image.y}
 
 
 def add_css_sprites(path, all=False, output=None):
@@ -444,6 +449,50 @@ def build_css_sprite_default(images):
     """
     pass
 
+@check_settings(['CSS_BUILDER_SPRITES'])
+def get_sprite_format(sprite_name, images=None):
+    """
+    TODO: tests for this function
+
+    Parameters:
+        sprite_name <str>
+    Return:
+        <str> or None
+    """
+    sprite_cfg = settings.CSS_BUILDER_SPRITES.get(sprite_name, None)
+    if sprite_cfg == None:
+        return None
+    if 'format' in sprite_cfg:
+        format = sprite_cfg['format'].upper()
+        if format in IMAGE_FORMATS:
+            return format
+        else:
+            log('get_sprite_format',
+                'Unrecognized image format %s. Available formats: %s' %\
+                (format, IMAGE_FORMATS))
+            return None
+    else:
+        if images == None:
+            files = find_package_files(
+                        settings.CSS_BUILDER_SPRITES[sprite_name]['files'],
+                        settings.CSS_BUILDER_SOURCE)
+            found_format = None
+            for f in files:
+                format = os.path.splitext(f)[1][1:].upper()
+                if format not in IMAGE_FORMATS:
+                    log('get_sprite_format',
+                        'Unrecognized image format %s. Available formats: %s'
+                        % (format, IMAGE_FORMATS))
+                    return None
+                else:
+                    if found_format == None:
+                        found_format = format
+                    elif format != found_format:
+                        # images in different format in sprite
+                        return None
+            return found_format
+        else: # TODO
+            return None
 
 def create_css_sprite_file(sprite_name, images, width, height):
     """
@@ -464,7 +513,10 @@ def create_css_sprite_file(sprite_name, images, width, height):
     for image in images:
         image_file = Image.open(image.path)
         output_image.paste(image_file,(image.x, image.y))
-    output_image.save(os.path.join(settings.MEDIA_ROOT, sprite_name + '.png'))
+
+    format = get_sprite_format(sprite_name)
+    output_image.save(os.path.join(settings.MEDIA_ROOT,
+                    '%s.%s' % (sprite_name, format)))
 
     try:
         sprite = Sprite.objects.get(name=sprite_name)
