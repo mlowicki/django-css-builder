@@ -21,7 +21,8 @@ from css_builder.utils import (add_embedding_images, add_css_sprites, here,
                                BACKGROUND_IMAGE, build_package,
                                build_css_sprite, ImageFile, SpriteImageFile,
                                css_sprite_is_up_to_date, text_2_b64,
-                               found_css_sprite, create_css_sprite_file)
+                               found_css_sprite, create_css_sprite_file,
+                               get_sprite_format, IMAGE_FORMATS)
 from css_builder.tests_utils import SettingsTestCase, check_last_log
 from css_builder.models import SpriteImage, Sprite
 
@@ -83,9 +84,10 @@ class UtilsTest(SettingsTestCase):
         f.write(
             'background: #808080 url(a.png) no-repeat top left; /* 2sprite */')
         f.close()
-        f = open(os.path.join(self.rootTestsDir, 'source', 'a.png'), 'w')
-        f.close()
-
+        shutil.copyfile(here(['tests_files', 'a.png']),
+            os.path.join(self.rootTestsDir, 'source', 'a.png'))
+        
+        self.settings_manager.remove(['CSS_BUILDER_SOURCE'])
         add_css_sprites(css_file)
         self.failUnless(check_last_log('CSS_BUILDER_SOURCE is not set'))
         self.settings_manager.set(
@@ -97,32 +99,35 @@ class UtilsTest(SettingsTestCase):
         self.settings_manager.set(
                 MEDIA_ROOT=os.path.join(self.rootTestsDir, 'dest'),
                 CSS_BUILDER_SPRITES={'s1': {'files': [r'.*\.png'],
-                                            "orientation": 'horizontaly'}})
-
-        add_css_sprites(css_file)
-        f = open(css_file, "r")
-        content = f.read()
-        f.close()
-        self.failUnlessEqual(content,
-                'background: #808080 url(s1) no-repeat 0px 0px;')
-
-        f = open(css_file, "w")
-        f.write(
-            'background: #808080 url(a.png) no-repeat top left;')
-        f.close()
-        add_css_sprites(css_file, all=True)
-        f = open(css_file, "r")
-        content = f.read()
-        f.close()
-        self.failUnlessEqual(content,
-                'background: #808080 url(s1) no-repeat 0px 0px;')
+                                            'orientation': 'vertically'}})
 
         add_css_sprites(css_file)
         f = open(css_file, 'r')
         content = f.read()
         f.close()
         self.failUnlessEqual(content,
-            'background: #808080 url(s1) no-repeat 0px 0px;')
+                'background: #808080 url(%s) no-repeat 0px 0px;' %\
+                os.path.join(settings.MEDIA_URL, 's1.PNG'))
+
+        f = open(css_file, 'w')
+        f.write(
+            'background: #808080 url(a.png) no-repeat top left;')
+        f.close()
+        add_css_sprites(css_file, all=True)
+        f = open(css_file, 'r')
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content,
+                'background: #808080 url(%s) no-repeat 0px 0px;' %\
+                os.path.join(settings.MEDIA_URL, 's1.PNG'))
+
+        add_css_sprites(css_file)
+        f = open(css_file, 'r')
+        content = f.read()
+        f.close()
+        self.failUnlessEqual(content,
+            'background: #808080 url(%s) no-repeat 0px 0px;' %\
+            os.path.join(settings.MEDIA_URL, 's1.PNG'))
 
         self.settings_manager.set(
                             CSS_BUILDER_SPRITES={'s1': {'files': [r'.*\.png'],
@@ -197,43 +202,84 @@ base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
         self.failUnlessEqual(content, 'background: red url("data:image/png;\
 base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
 
+    def test_get_sprite_format(self):
+        self.settings_manager.set(
+            MEDIA_ROOT=os.path.join(self.rootTestsDir, 'dest'),
+            CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, 'source'))
+        os.mkdir(settings.MEDIA_ROOT)
+        os.mkdir(settings.CSS_BUILDER_SOURCE)
+        
+        self.settings_manager.set(
+            CSS_BUILDER_SPRITES={'s1': {'files': ['.*\.png'],
+                'orientation': 'vertically', 'format': 'wrong'}})
+        self.failUnlessEqual(get_sprite_format('s1'), None)
+        self.failUnless(check_last_log('get_sprite_format'))
+        self.failUnless(
+            check_last_log('Unrecognized image format %s in sprite %s \
+definition. Available formats: %s' % ('wrong', 's1', IMAGE_FORMATS)))
+
+        self.settings_manager.set(
+            CSS_BUILDER_SPRITES={'s1': {'files': ['.*\.png'],
+                'orientation': 'vertically', 'format': 'jpg'}})
+        self.failUnlessEqual(get_sprite_format('s1'), 'JPG')
+        
+        shutil.copyfile(here(['tests_files', 'a.png']),
+            os.path.join(settings.CSS_BUILDER_SOURCE, 'a.png'))
+        shutil.copyfile(here(['tests_files', 'a.png']),
+            os.path.join(settings.CSS_BUILDER_SOURCE, 'b.png'))
+        self.settings_manager.set(
+            CSS_BUILDER_SPRITES={'s1': {'files': ['.*\.(png|jpg)'],
+                'orientation': 'vertically'}})
+        self.failUnlessEqual(get_sprite_format('s1'), 'PNG')
+
+        shutil.copyfile(here(['tests_files', 'b.jpg']),
+            os.path.join(settings.CSS_BUILDER_SOURCE, 'c.jpg'))
+        self.failUnlessEqual(get_sprite_format('s1'), None)
+    
+        f = open(os.path.join(settings.CSS_BUILDER_SOURCE, 'd.jpg'), 'w')
+        f.close()
+        self.failUnlessEqual(get_sprite_format('s1'), None)
+        self.failUnless(check_last_log('get_sprite_format'))
+        self.failUnless('Unreconized image format %s. Available formats: %s' %\
+            ('None', IMAGE_FORMATS))
+
     def test_build_css_sprite(self):
         self.settings_manager.set(
-            MEDIA_ROOT=os.path.join(self.rootTestsDir, "dest"),
-            CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, "source"),
-            CSS_BUILDER_SPRITES={"p1": {"files": [r".*\.png"],
-                                        "orientation": "vertically"}})
+            MEDIA_ROOT=os.path.join(self.rootTestsDir, 'dest'),
+            CSS_BUILDER_SOURCE=os.path.join(self.rootTestsDir, 'source'),
+            CSS_BUILDER_SPRITES={'p1': {'files': [r'.*\.png'],
+                                        'orientation': 'vertically'}})
 
         os.mkdir(os.path.join(self.rootTestsDir, "source"))
         os.mkdir(os.path.join(self.rootTestsDir, "dest"))
-        f = open(os.path.join(self.rootTestsDir, "source", "a.png"), "w")
-        f.close()
-        f = open(os.path.join(self.rootTestsDir, "source", "b.png"), "w")
-        f.close()
-        f = open(os.path.join(self.rootTestsDir, "source", "c.png"), "w")
-        f.close()
-        build_css_sprite("p1")
-        coords = [[0,0], [0, 201], [0, 401]]
+        shutil.copyfile(here(['tests_files', 'a.png']),
+            os.path.join(settings.CSS_BUILDER_SOURCE, 'a.png'))
+        shutil.copyfile(here(['tests_files', 'a.png']),
+            os.path.join(settings.CSS_BUILDER_SOURCE, 'b.png'))
+        shutil.copyfile(here(['tests_files', 'a.png']),
+            os.path.join(settings.CSS_BUILDER_SOURCE, 'c.png'))
+        build_css_sprite('p1')
+        coords = [[0,0], [0, 17], [0, 33]]
         for image in SpriteImage.objects.all():
             image_xy = [image.x, image.y]
             self.failUnless(image_xy in coords)
             coords.remove(image_xy)
 
         self.settings_manager.set(
-                            CSS_BUILDER_SPRITES={"p1": {"files": [r".*\.png"],
-                                                "orientation": "horizontaly"}})
-        build_css_sprite("p1")
-        coords = [[0,0], [101, 0], [201, 0]]
+                            CSS_BUILDER_SPRITES={'p1': {'files': [r'.*\.png'],
+                                                'orientation': 'horizontaly'}})
+        build_css_sprite('p1')
+        coords = [[0,0], [17, 0], [33, 0]]
         for image in SpriteImage.objects.all():
             image_xy = [image.x, image.y]
             self.failUnless(image_xy in coords)
             coords.remove(image_xy)
 
         self.settings_manager.set(
-                            CSS_BUILDER_SPRITES={"p1": {"files": [r".*\.png"],
-                                                "orientation": "wrong name"}})
-        build_css_sprite("p1")
-        self.failUnless(check_last_log("Unrecognized orientation: wrong name"))
+                            CSS_BUILDER_SPRITES={'p1': {'files': [r'.*\.png'],
+                                                'orientation': 'wrong name'}})
+        build_css_sprite('p1')
+        self.failUnless(check_last_log('Unrecognized orientation: wrong name'))
 
     def test_found_css_sprite(self):
         self.settings_manager.set(
@@ -255,7 +301,7 @@ base64,%s") no-repeat top left;' % text_2_b64('abcdef'))
         f = open(os.path.join(
                     self.rootTestsDir, "source", "d1", "d2", "e.bmp"), "w")
         f.close()
-
+        self.settings_manager.remove(['CSS_BUILDER_SPRITES'])
         self.failUnlessEqual(found_css_sprite(os.path.join(
                             self.rootTestsDir, "source", "d1", "c.png")), None)
         self.failUnless(check_last_log("CSS_BUILDER_SPRITES is not set"))
@@ -452,22 +498,26 @@ require b.css\n// require c.css")
 
     def test_create_css_sprite_file(self):
         self.settings_manager.set(
-                CSS_BUILDER_SPRITES={"sprite#1": {"orientation": "horizontal"},
-                                "sprite#2": {"orientation": "horizontal"}})
+                CSS_BUILDER_SPRITES={'sprite#1': {'orientation': 'horizontal'},
+                                'sprite#2': {'orientation': 'horizontal',
+                                            'format': 'png'}})
 
-        self.failUnlessEqual(create_css_sprite_file("sprite#1", []), None)
+        self.failUnlessEqual(create_css_sprite_file('sprite#1', [], 100, 100),
+                            None)
         self.failUnlessRaises(Sprite.DoesNotExist, Sprite.objects.get,
-                              name="sprite#1")
-        self.sprite_image_1 = SpriteImageFile("a.png", 40, 60)
-        create_css_sprite_file("sprite#2", [self.sprite_image_1])
-        sprite_2 = Sprite.objects.get(name="sprite#2")
-        image_1 = SpriteImage.objects.get(path="a.png", sprite=sprite_2)
+                              name='sprite#1')
+        self.image_a = here(['tests_files', 'a.png'])
+        self.sprite_image_1 = SpriteImageFile(self.image_a, 40, 60)
+        create_css_sprite_file('sprite#2', [self.sprite_image_1], 100, 100)
+        sprite_2 = Sprite.objects.get(name='sprite#2')
+        image_1 = SpriteImage.objects.get(path=self.image_a,
+                                        sprite=sprite_2)
         self.failUnlessEqual(image_1.x, 40)
         self.failUnlessEqual(image_1.y, 60)
         self.failUnlessEqual(image_1.sprite, sprite_2)
 
-        self.sprite_image_1 = SpriteImageFile("a.png", 60, 80)
-        create_css_sprite_file("sprite#2", [self.sprite_image_1])
-        image_1 = SpriteImage.objects.get(path="a.png", sprite=sprite_2)
+        self.sprite_image_1 = SpriteImageFile(self.image_a, 60, 80)
+        create_css_sprite_file('sprite#2', [self.sprite_image_1], 100, 100)
+        image_1 = SpriteImage.objects.get(path=self.image_a, sprite=sprite_2)
         self.failUnlessEqual(image_1.x, 60)
         self.failUnlessEqual(image_1.y, 80)

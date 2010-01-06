@@ -5,6 +5,7 @@ import os
 import re
 from contextlib import closing
 import Image
+import imghdr
 
 from django import template
 from django.conf import settings
@@ -198,13 +199,10 @@ def found_css_sprite(path):
     Return:
         None or <str>
     """
-    #if not hasattr(settings, "CSS_BUILDER_SPRITES"):
-    #    log("found_css_sprite", "CSS_BUILDER_SPRITES is not set")
-    #    return None
-
     for sprite in settings.CSS_BUILDER_SPRITES:
-        files = find_package_files(settings.CSS_BUILDER_SPRITES[sprite]["files"],
-                                   settings.CSS_BUILDER_SOURCE)
+        files = find_package_files(
+            settings.CSS_BUILDER_SPRITES[sprite]["files"],
+            settings.CSS_BUILDER_SOURCE)
         if path in files:
             return sprite
     log("found_css_sprite", "CSS sprite for %s not found" % path)
@@ -368,8 +366,6 @@ class ImageFile(object):
         """
         Parameters:
             path <str> - absolute path to the image file
-            width <int> - image width
-            height <int> - image height
             
         """
         self.width, self.height = Image.open(path).size
@@ -384,8 +380,6 @@ class SpriteImageFile(ImageFile):
         """
         Parameters:
             path <str> - absolute path to the image file
-            width <int> - image width
-            height <int> - image height
             x <int> - TODO
             y <int> - TODO
             
@@ -429,13 +423,16 @@ def build_css_sprite_horizontaly(images):
     """
     results = []
     current_x = 0
+    height = 0
     for image in images:
         sprite_image = SpriteImageFile(image.path, current_x, 0)
         results.append(sprite_image)
         if current_x == 0:
             current_x += 1
         current_x += image.width
-    return results
+        if image.height > height:
+            height = image.height
+    return results, current_x, height
 
 
 def build_css_sprite_default(images):
@@ -449,13 +446,25 @@ def build_css_sprite_default(images):
     """
     pass
 
+def ext_from_path(path):
+    return os.path.splitext(path)[1][1:]
+
+def is_image_format(format):
+    if type(format) != type(''):
+        return False
+    if format.upper() in IMAGE_FORMATS:
+        return True
+    else:
+        return False
+    
 @check_settings(['CSS_BUILDER_SPRITES'])
 def get_sprite_format(sprite_name, images=None):
     """
-    TODO: tests for this function
+    Return sprite format
 
     Parameters:
         sprite_name <str>
+        images <list>
     Return:
         <str> or None
     """
@@ -463,34 +472,36 @@ def get_sprite_format(sprite_name, images=None):
     if sprite_cfg == None:
         return None
     if 'format' in sprite_cfg:
-        format = sprite_cfg['format'].upper()
-        if format in IMAGE_FORMATS:
-            return format
+        format = sprite_cfg['format']
+        if is_image_format(format):
+            return format.upper()
         else:
-            log('get_sprite_format',
-                'Unrecognized image format %s. Available formats: %s' %\
-                (format, IMAGE_FORMATS))
+            log('get_sprite_format', 'Unrecognized image format %s in sprite \
+%s definition. Available formats: %s' % (format,sprite_name, IMAGE_FORMATS))
             return None
     else:
+        # check if all images in sprite have the same type. If this is
+        # true use this common type as the sprite format
         if images == None:
             files = find_package_files(
                         settings.CSS_BUILDER_SPRITES[sprite_name]['files'],
                         settings.CSS_BUILDER_SOURCE)
-            found_format = None
+            sprite_format = None
             for f in files:
-                format = os.path.splitext(f)[1][1:].upper()
-                if format not in IMAGE_FORMATS:
+                format = imghdr.what(f)
+                if not is_image_format(format):
                     log('get_sprite_format',
                         'Unrecognized image format %s. Available formats: %s'
                         % (format, IMAGE_FORMATS))
                     return None
                 else:
-                    if found_format == None:
-                        found_format = format
-                    elif format != found_format:
+                    format = format.upper()
+                    if sprite_format == None:
+                        sprite_format = format
+                    elif format != sprite_format:
                         # images in different format in sprite
                         return None
-            return found_format
+            return sprite_format
         else: # TODO
             return None
 
